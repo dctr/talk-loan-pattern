@@ -1,42 +1,14 @@
-<!-- $theme: gaia -->
 <!-- $size: 16:9 -->
 
-# Talk - Loan Pattern
+# Loaning
 
-A talk about the loan pattern.
-
----
-
-# Loaning - The elegant way to manage resources
+## The elegant way to managing resources
 
 ---
 
-# TODO
+# (De-)Motivation
 
-## Outline
-
-Resource management issues
-
-- Repetetive cleanup code
-- Error prone
-- No separation of concerns
-- FP: 
-
-## Pros
-
-- Separation of Concerns
-- Unit testing with dependency injection
-- Maybe event apply additional logic (wrap query) or restric (only pass down some functions, but not all)
-
-Vocabulary
-
-- main
-- Loaner
-- Loanee
-
----
-
-# Motivation
+Code all too often looks like this:
 
 ```js
 const doEverything = resourceConfig => {
@@ -56,36 +28,52 @@ const result = doEverything(resourceConfig);
 
 ---
 
-# What we want to do
-
-*Query something*
-
-- We know how our query has to look like
-- We don't care about anything else (... or at least we don't want to)
-
----
-
 # What we need to do
 
-- Acquire a resource
-- Query the resource
-- Dispose of the resource
-- Handle disposal even in exception case!
+- Acquire a **resource**
+- Execute a query
+- Dispose of the **resource**
+- Handle disposal of the **resource** even in exception case!
+- Again, and again, and again...
 
 ---
 
-# Motivation 2
+# What we want to do
 
-Be a good coder
+- Acquire a resource
+- Execute a query <= This is what we actually **want** to do
+- Dispose of the resource
+- Handle disposal of the resource even in exception case!
+- Once <= And *maybe* this
+
+---
+
+# Motivation
 
 - Adhere to DRY principle
-  - Resource management everywhere a resource is needed
-- Adhere to Singe Responsibility Principle 
-  - Mix resource management and application logic
+  - Reusable resource management module
+- Adhere to Singe Responsibility Principle
+  - Separate query logic and resource logic
+- Adhere to Dependency Inversion Principle
+  - Nicely testable
+
+---
+
+# Motivation (cont'd)
+
 - Go FP style
-  - Higher order functions
-  - Encapsuling what can cause side-effects
+  - Higher-order functions
+  - Encapsuling side-effects
 - Go async
+  - Because resources usually are
+
+---
+
+# Idea
+
+- Loan resource to a loanee
+- Let loanee tell when query is complete
+- Let caller trigger creation and passing of functions
 
 ---
 
@@ -134,7 +122,7 @@ const result = using(resourceConfig, loanee);
 # Step 2
 
 - Promises
-- Using a higher order function for the loaner as well
+- Using an even higher order function for the loaner
 
 ---
 
@@ -164,10 +152,11 @@ const using = resourceConfig => withResource => {
 
 ```js
 // Execution
-using(resourceConfig)((resource, resolve, reject) => resource
-  .query('SOME QUERY')
-  .then(someData => process(someData))
-  .then(resolve);
+using(resourceConfig)((resource, resolve, reject) =>
+  resource
+    .query('SOME QUERY')
+    .then(someData => process(someData))
+    .then(resolve)
 )
 .then(result => /* ... */);
 ```
@@ -179,14 +168,14 @@ using(resourceConfig)((resource, resolve, reject) => resource
 Parameterizing the loanee
 
 ```js
-const parameterizeLoanee = params => resource => {
-  const configuredQuery = configureQuery(params);
-  const someData = resource.query(configuredQuery);
-  const processedData = process(someData);
-  return processedData;
-};
+const parameterizeLoanee = params => (resource, resolve, reject) => 
+  resource
+    .query('SOME QUERY')
+    .then(someData => process(someData))
+    .then(resolve);
 
 const withResource = parameterizeLoanee(params);
+
 using(resourceConfig)(withResource)
   .then(result => /* ... */);
 ```
@@ -196,22 +185,23 @@ using(resourceConfig)(withResource)
 # Application
 
 ```js
-const usingDbConnection = dbConfig => metricsFetcher => new Promise((resolve, reject) => {
-  let connection;
-  db.connect(dbConfig)
-    .then(c => {
-      connection = c;
-      return metricsFetcher(connection.query, resolve, reject);
-    })
-    .then((connection, result) => {
-      connection.close();
-      return result;
-    })
-    .catch(e => {
-      connection && connection.close();
-      throw e;
-    });
-});
+const usingDbConnection = dbConfig => dbLoaner => 
+  new Promise((resolve, reject) => {
+    let connection;
+    db.connect(dbConfig)
+      .then(c => {
+        connection = c;
+        return dbLoaner(connection.query, resolve, reject);
+      })
+      .then((connection, result) => {
+        connection.close();
+        return result;
+      })
+      .catch(e => {
+        connection && connection.close();
+        throw e;
+      });
+  });
 ```
 
 ---
