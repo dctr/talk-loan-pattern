@@ -1,3 +1,4 @@
+<!-- $theme: gaia -->
 <!-- $size: 16:9 -->
 
 # Loaning
@@ -71,8 +72,8 @@ const result = doEverything(resourceConfig);
 
 # Idea
 
-- Loan resource to a loanee
-- Let loanee tell when query is complete
+- Loan resource to a borrower
+- Let borrower tell when query is complete
 - Let caller trigger creation and passing of functions
 
 ---
@@ -80,20 +81,19 @@ const result = doEverything(resourceConfig);
 # Step 1
 
 - Separation of concerns
-- Using a higher order function for the loanee
+- Using a higher order function for the borrower
 
 ---
 
 # Step 1
 
 ```js
-// Loaner
-const using = (resourceConfig, withResource) => {
+const loan = (resourceConfig, borrower) => {
   try {
     const resource = aquire(resourceConfig);
 
     // Call Loanee
-    return withResource(resource);
+    return borrower(resource);
 
   } finally {
     resource && dispose(resource);
@@ -106,15 +106,14 @@ const using = (resourceConfig, withResource) => {
 # Step 1
 
 ```js
-// Loanee
-const loanee = resource => {
+const borrower = resource => {
   const someData = resource.query('SOME QUERY');
   const processedData = process(someData);
   return processedData;
 };
 
 // Execution
-const result = using(resourceConfig, loanee);
+const result = loan(resourceConfig, borrower);
 ```
 
 ---
@@ -129,20 +128,21 @@ const result = using(resourceConfig, loanee);
 # Step 2
 
 ```js
-// Loaner
-const using = resourceConfig => withResource => {
+const loan = resourceConfig => borrower => {
   let resource;
-  return new Promise((resolve, reject) => {
-    resource = aquire(resourceConfig);
-    return withResource(resource, resolve, reject);
-  })
-  .then(result => {
-    dispose(resource);
-    return result;
-  }).catch(error => {
-    resource && dispose(resource);
-    throw error;
-  });
+  return Promise
+    .resolve(aquire(resourceConfig))
+    .then(r => {
+      resource = r;
+      return borrower(resource);
+    })
+    .then(result => {
+      dispose(resource);
+      return result;
+    }).catch(error => {
+      resource && dispose(resource);
+      throw error;
+    });
 };
 ```
 
@@ -151,9 +151,9 @@ const using = resourceConfig => withResource => {
 # Step 2
 
 ```js
-// Execution
-using(resourceConfig)((resource, resolve, reject) =>
-  resource
+// Note: `query` is now async and returns a Promise.
+loan(resourceConfig)(
+  resource => resource
     .query('SOME QUERY')
     .then(someData => process(someData))
     .then(resolve)
@@ -165,18 +165,18 @@ using(resourceConfig)((resource, resolve, reject) =>
 
 # Bonus Level
 
-Parameterizing the loanee
+Parameterizing the borrower
 
 ```js
-const parameterizeLoanee = params => (resource, resolve, reject) => 
+const parameterizeBorrower = params => resource =>
   resource
     .query('SOME QUERY')
     .then(someData => process(someData))
     .then(resolve);
 
-const withResource = parameterizeLoanee(params);
+const borrower = parameterizeBorrower(params);
 
-using(resourceConfig)(withResource)
+loan(resourceConfig)(borrower)
   .then(result => /* ... */);
 ```
 
@@ -185,15 +185,15 @@ using(resourceConfig)(withResource)
 # Application
 
 ```js
-const usingDbConnection = dbConfig => dbLoaner => 
+const loanDbConnection = dbConfig => dbLoaner =>
   new Promise((resolve, reject) => {
     let connection;
     db.connect(dbConfig)
       .then(c => {
         connection = c;
-        return dbLoaner(connection.query, resolve, reject);
+        return dbLoaner(connection.query);
       })
-      .then((connection, result) => {
+      .then(result => {
         connection.close();
         return result;
       })
@@ -209,12 +209,12 @@ const usingDbConnection = dbConfig => dbLoaner =>
 # Application
 
 ```js
-const createMetricsFetcher = desiredMetrics => (query, resolve, reject) =>
-  new Promise((resolve, reject) => {
-    const fields = desiredMetrics.join(', ');
-    return query(`SELECT ${fields} FROM metrics;`)
-      .then(processResults);
-  });
+const createMetricsFetcher = desiredMetrics => query => {
+  const fields = desiredMetrics.join(', ');
+  return query(`SELECT ${fields} FROM metrics;`)
+    .then(processResults)
+    .then(resolve);
+});
 ```
 
 ---
@@ -230,6 +230,6 @@ const dbConfig = {
 };
 const desiredMetrics = ['metricA', 'metricB', 'metricC'];
 
-usingDbConnection(dbConfig)(createMetricsFetcher(desiredMetrics))
+loanDbConnection(dbConfig)(createMetricsFetcher(desiredMetrics))
   .then(result => /* ... */);
 ```
